@@ -1,0 +1,177 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+rm(list=ls())
+#loading the data as a csv
+credit_data<-read_csv("credit_card_default.csv")
+names(credit_data)<-credit_data[1,]
+credit_data<-credit_data[-c(1),]
+dim(credit_data)
+names(credit_data)[7]<-"PAY_1"
+names(credit_data)[25]<-"defaulted_next_month"
+library(hablar)
+credit_data<-credit_data%>% convert(fct(SEX,EDUCATION,MARRIAGE,PAY_1:PAY_6,defaulted_next_month),
+int(ID,LIMIT_BAL,AGE,BILL_AMT1:PAY_AMT6))%>%select(-ID)
+summary(credit_data)
+```
+```{r}
+#confirm the columns have the right factors
+table(credit_data$SEX) #1 or 2
+table(credit_data$EDUCATION)#should be 1,2,3,4. so put the rest into 4
+table(credit_data$MARRIAGE) #should be 1,2,3 so put the rest into 3
+table(credit_data$defaulted_next_month) #should be 0 or 1
+#correct education and marriage
+credit_data<-credit_data%>% mutate(EDUCATION =case_when(EDUCATION ==1~1,EDUCATION==2~2,EDUCATION==3~3,TRUE~4),MARRIAGE=case_when(MARRIAGE==1~1,MARRIAGE==2~2,TRUE~3))
+#check for missing values
+which(is.na(credit_data), arr.ind=TRUE)
+table(credit_data$PAY_1) #-2 is not a category
+#dropped -2 repayment status
+credit_data<-credit_data %>% filter(PAY_1 != '-2')%>% filter( PAY_2!= '-2')%>% filter (PAY_3!= '-2')%>% filter( PAY_4!= '-2') %>% filter(PAY_5!= '-2') %>% filter(PAY_6!= '-2')
+
+credit_data<-credit_data%>% mutate(age_group= case_when(AGE <=35~"35 and below",AGE >35 & AGE <=49~"36-49",AGE >49 &AGE <=65~"50-65",TRUE~"Above 65"))
+```
+
+```{r}
+#exploratory data analysis
+#default by sex
+credit_data %>%mutate(SEX = factor(SEX)) %>%group_by(SEX, defaulted_next_month) %>%count() %>%group_by(SEX) %>%mutate(percentage = n/sum(n)*100) %>%
+ggplot(aes(x = factor(defaulted_next_month), y = percentage, fill = SEX)) +
+geom_bar(position = 'dodge', stat = 'identity') +scale_x_discrete(labels=c("Not defaulted","Defaulted"))+scale_fill_discrete(labels=c("Male","Female")) +labs (x="Default category",y="Percentage",title="Male customers defaulted more than female customers")+theme(plot.title = element_text(hjust = 0.5))
+
+#how did sexes differ based on their limits
+sex_limits<-credit_data %>% group_by(LIMIT_BAL, SEX) %>%count() %>% group_by(SEX) %>% summarise(avg_limits =mean(LIMIT_BAL))
+
+#default by marriage
+credit_data %>%mutate(MARRIAGE = factor(MARRIAGE)) %>%group_by(MARRIAGE, defaulted_next_month) %>%count() %>%group_by(MARRIAGE) %>%mutate(percentage = n/sum(n)*100) %>% ggplot(aes(x = factor(defaulted_next_month), y = percentage, fill = MARRIAGE)) +
+geom_bar(position = 'dodge', stat = 'identity') +scale_x_discrete(labels=c("Not defaulted","Defaulted"))+scale_fill_discrete(labels=c("Maried","Single","Others")) +labs (x="Default category",y="Percentage",title="Married customers defaulted more")+theme(plot.title = element_text(hjust = 0.5))
+
+marriage_limits<-credit_data %>% group_by(LIMIT_BAL, MARRIAGE) %>%count() %>% group_by(MARRIAGE) %>% summarise(avg_limits =mean(LIMIT_BAL))
+
+ggplot(marriage_limits,aes(x = factor(MARRIAGE), y = avg_limits))+geom_bar(position = 'dodge', stat = 'identity') + scale_x_discrete(labels=c("Married","Single","Others"))+ labs (x="Marriage category",y="Avg credit limit",title="Married people had higher credit limits")+theme(plot.title = element_text(hjust = 0.5))
+
+#default by education
+credit_data %>% mutate(EDUCATION = factor(EDUCATION)) %>% group_by(EDUCATION, defaulted_next_month) %>%count() %>% group_by(EDUCATION) %>%mutate(percentage = n/sum(n)*100) %>%
+ggplot(aes(x = factor(defaulted_next_month), y = percentage, fill = EDUCATION)) +
+geom_bar(position = 'dodge', stat = 'identity') +scale_fill_discrete(labels=c("Gradute","University","High school","Others")) +labs (x="Default category",y="Percentage",title="Highly educated customers defaulted less")+theme(plot.title = element_text(hjust = 0.5))
+
+education_limits<-credit_data %>% group_by(LIMIT_BAL, EDUCATION) %>%count() %>% group_by(EDUCATION) %>% summarise(avg_limits =mean(LIMIT_BAL))
+
+ggplot(education_limits,aes(x = factor(EDUCATION), y = avg_limits))+geom_bar(position = 'dodge', stat = 'identity') + scale_x_discrete(labels=c("Gradute","University","High school","Others"))+ labs (x="Education category",y="Avg credit limit",title="Highly educated people had higher credit limits")+theme(plot.title = element_text(hjust = 0.5))
+
+#default by age_group
+credit_data %>%mutate(age_group = factor(age_group)) %>% group_by(age_group, defaulted_next_month) %>%count() %>%group_by(age_group) %>%mutate(percentage = n/sum(n)*100) %>%
+ggplot(aes(x = factor(defaulted_next_month), y = percentage, fill = age_group)) +
+geom_bar(position = 'dodge', stat = 'identity') +labs (x="Default category",y="Percentage",title="Customers above 65yrs defaulted least")+theme(plot.title = element_text(hjust = 0.5))
+
+age_limits<-credit_data %>% group_by(LIMIT_BAL, age_group) %>%count() %>% group_by(age_group) %>% summarise(avg_limits =mean(LIMIT_BAL))
+
+ggplot(age_limits,aes(x = factor(age_group), y = avg_limits))+geom_bar(position = 'dodge', stat = 'identity') + labs (x="Education category",y="Avg credit limit",title="Those above 65 years had the lowest credit limits")+theme(plot.title = element_text(hjust = 0.5))
+
+#default by limit bal
+range(credit_data$LIMIT_BAL)
+credit_data %>% mutate(limit_bands = case_when(LIMIT_BAL <200000~"Below 200k",LIMIT_BAL >=200000 & LIMIT_BAL < 400000~"200-400k",LIMIT_BAL >=400000 & LIMIT_BAL <600000~"400-600k",LIMIT_BAL >=600000 & LIMIT_BAL < 800000~"600-800k",TRUE~"Above 800k")) %>%group_by(limit_bands, defaulted_next_month) %>% count() %>% group_by(limit_bands) %>% mutate(percentage = n/sum(n)*100) %>% ggplot(aes(x = factor(defaulted_next_month), y = percentage, fill = limit_bands)) +
+geom_bar(position = 'dodge', stat = 'identity') + scale_x_discrete(labels=c("Not defaulted","Defaulted"))+labs (x="Default category",y="Percentage",title="Customers with lower limits defaulted more")+theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+```{r}
+##convert factors into int to facilitate modelling
+#randomly split into train and test data. 80-20 ratio
+credit_data<-credit_data %>% convert(int(SEX,EDUCATION,MARRIAGE,PAY_1:PAY_6,defaulted_next_month))
+#cor(credit_data)
+sample_size = floor(0.8*nrow(credit_data))
+set.seed(777)
+s = sample(seq_len(nrow(credit_data)),size = sample_size)
+train = credit_data[s,]
+x_train<-train[,-24]
+y_train<-as.numeric(as.vector(unlist(train[,24])))
+test = credit_data[-s,]
+x_test<-test[,-24]
+y_test<-as.numeric(as.vector(unlist(test[,24])))
+#cor(train)
+
+#linear regression
+library(caret)
+linear_cntrol<-trainControl(method="cv",number=10)
+linear_model<-train(defaulted_next_month~.,data=train,method="lm",trControl=linear_cntrol)
+train_pred<-floor(predict(linear_model,x_train))
+test_pred<-floor(predict(linear_model,x_test))
+mean(train_pred!= y_train) #0.2640393; accuracy=0.7359607
+mean(test_pred!= y_test) # 0.2649317; accuracy=0.7350683
+summary(linear_model)
+
+
+#logistic regression
+lr<-glm(defaulted_next_month ~., data=train, family=binomial)
+probs<-predict(lr,x_train,type="response")
+classify <- ifelse(probs > 0.5, 1, 0)
+mean(classify != y_train) #0.1830836 accuracy=0.8239027
+probs_test<-predict(lr,x_test,type="response")
+classify_2 <- ifelse(probs_test > 0.5, 1, 0)
+mean(classify_2 != y_test) #0.1932594 accuracy= 0.8067406
+
+#svm- took very long to run
+#require(e1071)
+#svm_linear<-tune(svm,defaulted_next_month~.,data=train,kernel="linear",,scale=F)
+#svm_linear<-svm(defaulted_next_month~.,data=train,kernel="linear",gamma=1,cost=1,scale=F)
+#svm_pred<-predict(svm_linear,x_train)
+#svm_test<-predict(svm_linear,x_test)
+#mean(svm_pred !=y_train)
+#mean(svm_test !=y_test)
+
+#svm radial
+#svm_radial<-tune(svm,defaulted_next_month~.,data=train,kernel="radial",ranges=list(cost=10^(seq(-5,2,0.5))),scale=F)
+#svm_radial<-svm(defaulted_next_month~.,data=train,kernel="radial",gamma=1,cost=1,scale=F)
+
+
+#decision tree
+library(rpart)
+decision_tree<-rpart(defaulted_next_month~., data = train, method = 'class',control=rpart.control(cp=.01, minsplit = 10,minbucket = 3))
+dec_train_pred <-predict(decision_tree, x_train, type = 'class')
+mean(dec_train_pred !=y_train) #0.1782305; accuracy=  0.8161263
+dec_test_pred <-predict(decision_tree, x_test, type = 'class')
+mean(dec_test_pred != y_test) #0.1838737; accuracy=0.8161263
+
+
+#randomforest
+library(randomForest)
+tree.rf <- randomForest(factor(defaulted_next_month) ~ .,data=train)
+train.rf <- predict(tree.rf,x_train)
+test.rf <- predict(tree.rf,x_test)
+mean(train.rf == y_train) #train error=5.333049e-05; accuracy= 0.9999467
+mean(test.rf != y_test) #test error= 0.1879266; accuracy=0.8120734
+importance(tree.rf) #not useful in this case becuase variables have different scales
+varImpPlot(tree.rf)
+
+#knn
+#train2<-scale(train[-25])
+library(class)
+train3<-train[-25]
+train3_scaled<-scale(train3[-24])
+test_scaled<-scale(x_test[-24])
+trControl <- trainControl(method = "repeatedcv",repeats = 3)
+names(train3)[24]<-"defaulted"
+knnFit <- train(factor(defaulted) ~ .,data = train3, method = "knn", trControl = trControl, preProcess = c("center","scale"),tuneLength = 20)
+plot(knnFit) #so k=23
+knn_md<-knn(train = train3_scaled, test = test_scaled,cl = y_train, k=23)
+mean(knn_md != y_test) #0.1945392 accuracy= 0.8054608
+
+
+#adaboost
+library(JOUSBoost)
+y_train2<-ifelse(y_train==1,1,-1)
+y_test2<-ifelse(y_test==1,1,-1)
+
+boost_model<-adaboost(as.matrix(train3),y_train2,tree_depth = 3, n_rounds = 100)
+boost_tr<-predict(boost_model,train3)
+mean(boost_tr == y_train2)
+names(test)[24]<-"defaulted"
+boost_test<-predict(boost_model,test)
+mean(boost_test ==y_test2)
+
+```
